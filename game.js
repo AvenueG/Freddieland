@@ -715,7 +715,7 @@ async function fetchAIReview(gameData) {
         return "Error: Please enter your Gemini API Key in the top right corner.";
     }
 
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest12q:generateContent?key=${apiKey}`;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     /*
        System Prompt Structure requested by user:
@@ -749,7 +749,17 @@ async function fetchAIReview(gameData) {
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            let errorMsg = `HTTP error! status: ${response.status}`;
+            try {
+                const errorData = await response.json();
+                console.error("Gemini API Error details:", errorData);
+                if (errorData.error && errorData.error.message) {
+                    errorMsg += ` - ${errorData.error.message}`;
+                }
+            } catch (e) {
+                // If we can't parse the error JSON, just stick to the status code
+            }
+            throw new Error(errorMsg);
         }
 
         const data = await response.json();
