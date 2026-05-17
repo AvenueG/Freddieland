@@ -6,30 +6,102 @@
     <title>Blackjack with AI Review</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        .playing-card {
+        /* Neon Felt Aesthetic & Retro Vibe */
+        @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
+
+        body {
+            background: radial-gradient(circle, #0a4d21 0%, #052c13 100%);
+            font-family: 'Courier Prime', monospace;
+            color: #e5e7eb;
+        }
+
+        /* Scanline Overlay */
+        .scanlines {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.1) 50%,
+                rgba(0,0,0,0.1)
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0.3;
+        }
+
+        /* The "Silky" Card Flip */
+        .card-container {
             width: 80px;
             height: 112px;
-            border-radius: 8px;
-            background-color: white;
+            margin: 0 4px;
+            perspective: 1000px; /* 3D effect */
+            display: inline-block;
+            transition: transform 0.2s ease-out;
+        }
+
+        /* Add a subtle lift on hover */
+        .card-container:hover {
+            transform: translateY(-10px) scale(1.05);
+            z-index: 10;
+        }
+
+        .card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-style: preserve-3d;
             box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+            border-radius: 8px;
+        }
+
+        .card-container.flipped .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .card-container:hover .card-inner {
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+        }
+
+        .card-front, .card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden; /* Safari */
+            backface-visibility: hidden;
+            border-radius: 8px;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             font-size: 24px;
             font-weight: bold;
-            margin: 0 4px;
-            position: relative;
+            font-family: sans-serif;
+            background-color: white;
         }
-        .card-red { color: red; }
-        .card-black { color: black; }
+
         .card-back {
             background-color: #0d47a1;
             background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px);
+            transform: rotateY(180deg);
         }
+
+        .card-red { color: red; }
+        .card-black { color: black; }
+
         .rank-top-left { position: absolute; top: 4px; left: 8px; font-size: 16px; }
         .suit-center { font-size: 40px; }
         .rank-bottom-right { position: absolute; bottom: 4px; right: 8px; font-size: 16px; transform: rotate(180deg); }
+
+        /* Glow for active hand */
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 10px rgba(251, 191, 36, 0.5); }
+            50% { box-shadow: 0 0 25px rgba(251, 191, 36, 1); }
+            100% { box-shadow: 0 0 10px rgba(251, 191, 36, 0.5); }
+        }
 
         .hand-container {
             border: 2px solid transparent;
@@ -38,13 +110,28 @@
             margin: 8px;
             transition: all 0.3s;
         }
-        .hand-active { border-color: #fbbf24; background-color: rgba(255, 255, 255, 0.1); }
+        .hand-active {
+            border-color: #fbbf24;
+            background-color: rgba(0, 0, 0, 0.3);
+            animation: pulseGlow 2s infinite;
+        }
+
+        /* The "Deal" Glide */
+        @keyframes dealCard {
+            from { transform: translate(500px, -500px) rotate(20deg); opacity: 0; }
+            to { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+        }
+        .card-dealt {
+            animation: dealCard 0.4s ease-out forwards;
+        }
     </style>
 </head>
-<body class="bg-green-800 text-white min-h-screen font-sans flex flex-col">
+<body class="min-h-screen flex flex-col relative">
+
+    <div class="scanlines"></div>
 
     <!-- Header & Settings -->
-    <header class="p-4 bg-green-900 shadow-md flex justify-between items-center">
+    <header class="p-4 bg-black/40 shadow-md flex justify-between items-center z-10">
         <h1 class="text-2xl font-bold text-yellow-400 tracking-wider">BLACKJACK AI PRO</h1>
         <div class="flex items-center gap-4">
             <div class="flex items-center gap-2">

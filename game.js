@@ -45,6 +45,123 @@ const doubleBtn = document.getElementById('doubleBtn');
 const splitBtn = document.getElementById('splitBtn');
 const surrenderBtn = document.getElementById('surrenderBtn');
 
+// --- Retro Audio Synthesizer ---
+class RetroAudio {
+    constructor() {
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    // "Thwack" (Short white noise burst with quick decay)
+    playDeal() {
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        const bufferSize = this.ctx.sampleRate * 0.1; // 100ms
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1; // White noise
+        }
+
+        const noiseSource = this.ctx.createBufferSource();
+        noiseSource.buffer = buffer;
+
+        // Lowpass filter to make it a "thwack" instead of harsh static
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1000, this.ctx.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.1);
+
+        const gainNode = this.ctx.createGain();
+        gainNode.gain.setValueAtTime(0.5, this.ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+
+        noiseSource.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.ctx.destination);
+        noiseSource.start();
+    }
+
+    // "Crackle" (Low-bitrate rhythmic shuffle)
+    playShuffle() {
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        const duration = 0.5;
+        const bufferSize = this.ctx.sampleRate * duration;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+
+        for (let i = 0; i < bufferSize; i++) {
+            // Simulate bit-crushed crackle by dropping samples
+            if (Math.random() > 0.9) {
+                data[i] = (Math.random() * 2 - 1) * 0.5;
+            } else {
+                data[i] = 0;
+            }
+        }
+
+        const source = this.ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this.ctx.destination);
+        source.start();
+    }
+
+    // "Win" (Polyphonic 2-note synth swell)
+    playWin() {
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        const t = this.ctx.currentTime;
+
+        // Note 1 (E4)
+        const osc1 = this.ctx.createOscillator();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(329.63, t);
+
+        // Note 2 (G#4)
+        const osc2 = this.ctx.createOscillator();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(415.30, t);
+
+        const gainNode = this.ctx.createGain();
+        gainNode.gain.setValueAtTime(0, t);
+        gainNode.gain.linearRampToValueAtTime(0.3, t + 0.3); // Swell up
+        gainNode.gain.exponentialRampToValueAtTime(0.01, t + 1.5); // Fade out
+
+        osc1.connect(gainNode);
+        osc2.connect(gainNode);
+        gainNode.connect(this.ctx.destination);
+
+        osc1.start(t);
+        osc2.start(t);
+        osc1.stop(t + 1.5);
+        osc2.stop(t + 1.5);
+    }
+
+    // "Bust" (Low-frequency square wave buzz with pitch drop)
+    playBust() {
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        const t = this.ctx.currentTime;
+
+        const osc = this.ctx.createOscillator();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(150, t);
+        osc.frequency.exponentialRampToValueAtTime(50, t + 0.5); // Pitch drop
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(500, t);
+
+        const gainNode = this.ctx.createGain();
+        gainNode.gain.setValueAtTime(0.3, t);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+
+        osc.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.5);
+    }
+}
+
+const audio = new RetroAudio();
+
 // --- Card & Shoe Logic ---
 
 function createShoe() {
@@ -65,6 +182,7 @@ function shuffleShoe() {
         const j = Math.floor(Math.random() * (i + 1));
         [shoe[i], shoe[j]] = [shoe[j], shoe[i]];
     }
+    audio.playShuffle();
 }
 
 function getCardValue(rank) {
@@ -83,13 +201,17 @@ function updateHiLoCount(card) {
     // Note: True count and running count are intentionally NOT displayed on UI
 }
 
+let cardIdCounter = 0; // Unique ID for cards to track animation
+
 function drawCard() {
     if (shoe.length < (NUM_DECKS * 52 * (1 - PENETRATION))) {
         createShoe();
         showMessage("Shuffling Shoe...", 1500);
     }
     const card = shoe.pop();
+    card.id = cardIdCounter++; // Assign unique ID for animation tracking
     updateHiLoCount(card);
+    audio.playDeal();
     return card;
 }
 
@@ -118,21 +240,42 @@ function calculateScore(cards) {
 
 // --- UI Rendering ---
 
-function renderCard(card, isHidden = false) {
-    const div = document.createElement('div');
-    div.className = 'playing-card';
-    if (isHidden) {
-        div.classList.add('card-back');
-    } else {
-        const isRed = card.suit === '♥' || card.suit === '♦';
-        div.classList.add(isRed ? 'card-red' : 'card-black');
-        div.innerHTML = `
-            <div class="rank-top-left">${card.rank}</div>
-            <div class="suit-center">${card.suit}</div>
-            <div class="rank-bottom-right">${card.rank}</div>
-        `;
+// Global set to track which cards have already been animated
+const animatedCards = new Set();
+
+function renderCard(card, isHidden = false, animateDeal = false) {
+    const container = document.createElement('div');
+    container.className = `card-container ${isHidden ? 'flipped' : ''}`;
+
+    // Only animate if requested and not animated before
+    if (animateDeal && !animatedCards.has(card.id)) {
+        container.classList.add('card-dealt');
+        animatedCards.add(card.id);
     }
-    return div;
+
+    const inner = document.createElement('div');
+    inner.className = 'card-inner';
+
+    // Front of the card
+    const front = document.createElement('div');
+    front.className = 'card-front';
+    const isRed = card.suit === '♥' || card.suit === '♦';
+    front.classList.add(isRed ? 'card-red' : 'card-black');
+    front.innerHTML = `
+        <div class="rank-top-left">${card.rank}</div>
+        <div class="suit-center">${card.suit}</div>
+        <div class="rank-bottom-right">${card.rank}</div>
+    `;
+
+    // Back of the card
+    const back = document.createElement('div');
+    back.className = 'card-back';
+
+    inner.appendChild(front);
+    inner.appendChild(back);
+    container.appendChild(inner);
+
+    return container;
 }
 
 function updateUI(hideDealerDownCard = true) {
@@ -143,9 +286,9 @@ function updateUI(hideDealerDownCard = true) {
     dealerCardsDiv.innerHTML = '';
     dealerHand.cards.forEach((card, index) => {
         if (index === 1 && hideDealerDownCard) {
-            dealerCardsDiv.appendChild(renderCard(card, true));
+            dealerCardsDiv.appendChild(renderCard(card, true, true)); // Request animation, set will filter
         } else {
-            dealerCardsDiv.appendChild(renderCard(card));
+            dealerCardsDiv.appendChild(renderCard(card, false, true)); // Request animation, set will filter
         }
     });
 
@@ -164,7 +307,9 @@ function updateUI(hideDealerDownCard = true) {
 
         const cardsDiv = document.createElement('div');
         cardsDiv.className = 'flex justify-center mb-2';
-        hand.cards.forEach(card => cardsDiv.appendChild(renderCard(card)));
+        hand.cards.forEach((card) => {
+            cardsDiv.appendChild(renderCard(card, false, true)); // Request animation, set will filter
+        });
         handDiv.appendChild(cardsDiv);
 
         let statusText = `Bet: $${hand.bet} | Score: ${hand.score}`;
@@ -239,6 +384,9 @@ function clearBet() {
 async function dealInitialCards() {
     if (shoe.length === 0) createShoe();
 
+    // Clear animation tracking set for new round
+    animatedCards.clear();
+
     gameMessage.classList.add('hidden');
     bettingControls.classList.add('hidden');
     aiReviewContainer.classList.add('hidden');
@@ -312,6 +460,7 @@ function checkDealerBlackjack() {
         if (insuranceBet > 0) {
             balance += insuranceBet + (insuranceBet * INSURANCE_PAYOUT);
             showMessage("Dealer has Blackjack. Insurance pays 2:1.", 2000);
+            audio.playWin();
         }
 
         if (playerHands[0].hasBlackjack) {
@@ -500,10 +649,13 @@ function resolveGame(forcedMessage = null) {
 
         if (playerHands.every(h => h.isBusted)) {
             resultMsg = "Player Busts. Dealer Wins.";
+            audio.playBust();
         } else if (playerHands.every(h => h.surrendered)) {
             resultMsg = "Player Surrendered.";
+            audio.playBust();
         } else if (dBust) {
             resultMsg = `Dealer Busts! You Win!`;
+            audio.playWin();
         } else {
             // Calculate if the player won, lost, or pushed overall based on the best non-busted hand
             let hasWon = false;
@@ -524,10 +676,12 @@ function resolveGame(forcedMessage = null) {
 
             if (hasWon) {
                 resultMsg = `你赢了！ (Dealer has ${dScore})`;
+                audio.playWin();
             } else if (hasPush) {
                 resultMsg = `平局！ (Dealer has ${dScore})`;
             } else {
                 resultMsg = `你输了！ (Dealer has ${dScore})`;
+                audio.playBust();
             }
         }
     }
