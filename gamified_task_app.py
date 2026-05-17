@@ -343,8 +343,8 @@ def render_ai_chatbox(context_type, context_data, custom_presets=None):
                             system_instruction = ""
                             if context_type == "dashboard":
                                 task_context = "Current Tasks:\n"
-                                for t in context_data:
-                                    task_context += f"- ID: {t['id']} | Objective: {t['objective']} | Progress: {t['progress']}%\n"
+                                for task_item in context_data:
+                                    task_context += f"- ID: {task_item['id']} | Objective: {task_item['objective']} | Progress: {task_item['progress']}%\n"
 
                                 system_instruction = f"""
 You are a gamified task system AI advisor. Answer the user's query briefly based on their current tasks. YOU MUST RESPOND IN {lang}.
@@ -387,12 +387,12 @@ def render_calendar(tasks):
         st.write(t("calendar_desc"))
         # Aggregate history
         history = {}
-        for t in tasks:
-            for record in t.get("contribution_history", []):
+        for task_item in tasks:
+            for record in task_item.get("contribution_history", []):
                 date = record["date"]
                 if date not in history:
                     history[date] = []
-                history[date].append(f"[{t['objective']}]: +{record['contribution']}% - {record['action']}")
+                history[date].append(f"[{task_item['objective']}]: +{record['contribution']}% - {record['action']}")
 
         if not history:
             st.info(t("no_history"))
