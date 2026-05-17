@@ -117,8 +117,8 @@ if st.button("Evaluate Action", type="primary"):
         with st.spinner("Evaluating your progress..."):
             try:
                 genai.configure(api_key=gemini_api_key)
-                # Use gemini-1.5-flash as it is fast and supports JSON response format
-                model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"response_mime_type": "application/json"})
+                # Use gemini-flash-latest as requested
+                model = genai.GenerativeModel('gemini-flash-latest', generation_config={"response_mime_type": "application/json"})
 
                 prompt = f"""
 你是一个客观且硬核的“游戏化任务系统”AI引擎。你的职责是评估用户的每日行动，量化其对任务总目标的真实贡献，并提供下一步的战略建议。
