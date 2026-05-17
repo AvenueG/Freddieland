@@ -715,7 +715,7 @@ async function fetchAIReview(gameData) {
         return "Error: Please enter your Gemini API Key in the top right corner.";
     }
 
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest12q:generateContent?key=${apiKey}`;
 
     /*
        System Prompt Structure requested by user:
