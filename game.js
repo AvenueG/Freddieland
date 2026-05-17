@@ -505,7 +505,30 @@ function resolveGame(forcedMessage = null) {
         } else if (dBust) {
             resultMsg = `Dealer Busts! You Win!`;
         } else {
-            resultMsg = `Round Over. Dealer has ${dScore}.`;
+            // Calculate if the player won, lost, or pushed overall based on the best non-busted hand
+            let hasWon = false;
+            let hasLost = true;
+            let hasPush = false;
+
+            playerHands.forEach(hand => {
+                if (!hand.isBusted && !hand.surrendered) {
+                    if (hand.score > dScore) {
+                        hasWon = true;
+                        hasLost = false;
+                    } else if (hand.score === dScore) {
+                        hasPush = true;
+                        hasLost = false;
+                    }
+                }
+            });
+
+            if (hasWon) {
+                resultMsg = `你赢了！ (Dealer has ${dScore})`;
+            } else if (hasPush) {
+                resultMsg = `平局！ (Dealer has ${dScore})`;
+            } else {
+                resultMsg = `你输了！ (Dealer has ${dScore})`;
+            }
         }
     }
 
@@ -538,7 +561,7 @@ async function fetchAIReview(gameData) {
         return "Error: Please enter your Gemini API Key in the top right corner.";
     }
 
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     /*
        System Prompt Structure requested by user:
