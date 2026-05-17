@@ -3,6 +3,7 @@ import google.generativeai as genai
 import json
 import uuid
 import os
+import re
 
 STATE_FILE = "gamified_state.json"
 
@@ -148,14 +149,60 @@ if st.session_state.current_page == "home":
         st.write("Ask for advice on managing your tasks.")
 
         # Display chat history
-        chat_container = st.container(height=500)
+        chat_container = st.container(height=450)
         with chat_container:
-            for msg in st.session_state.app_state["chat_history"]:
+            for idx, msg in enumerate(st.session_state.app_state["chat_history"]):
                 with st.chat_message(msg["role"]):
-                    st.markdown(msg["content"])
+                    content = msg["content"]
 
-        # Chat input
-        if prompt := st.chat_input("e.g., Help me prioritize these tasks"):
+                    # Look for hidden JSON reorder block
+                    match = re.search(r'```json\s*\n(\{\s*"action"\s*:\s*"reorder"[\s\S]*?\})\s*\n```', content)
+                    if match:
+                        try:
+                            reorder_data = json.loads(match.group(1))
+                            clean_text = content[:match.start()] + content[match.end():]
+                            st.markdown(clean_text)
+
+                            # Interactive Action Button
+                            if st.button("✨ 一键应用 AI 排序 (Apply Sorting)", key=f"apply_sort_{idx}"):
+                                new_order_ids = reorder_data.get("new_order", [])
+                                task_dict = {t["id"]: t for t in st.session_state.app_state["tasks"]}
+                                reordered_tasks = []
+                                # Add in the new order
+                                for tid in new_order_ids:
+                                    if tid in task_dict:
+                                        reordered_tasks.append(task_dict.pop(tid))
+                                # Add any remaining tasks that the AI missed
+                                reordered_tasks.extend(task_dict.values())
+                                st.session_state.app_state["tasks"] = reordered_tasks
+                                persist_state()
+                                st.success("Tasks reordered!")
+                                st.rerun()
+
+                        except json.JSONDecodeError:
+                            st.markdown(content)
+                    else:
+                        st.markdown(content)
+
+        # Preset action buttons
+        if "pending_prompt" not in st.session_state:
+            st.session_state.pending_prompt = None
+
+        action_cols = st.columns(2)
+        with action_cols[0]:
+            if st.button("帮我排序任务优先级", use_container_width=True):
+                st.session_state.pending_prompt = "帮我排序当前任务的优先级。请根据重要性和进度合理安排。"
+        with action_cols[1]:
+            if st.button("对我目前的目标提供建议", use_container_width=True):
+                st.session_state.pending_prompt = "请查看我目前的所有目标和进度，并给我一些具体的建议。"
+
+        # Handle chat input or preset click
+        prompt = st.chat_input("Ask a question...")
+        if st.session_state.pending_prompt:
+            prompt = st.session_state.pending_prompt
+            st.session_state.pending_prompt = None
+
+        if prompt:
             if not st.session_state.app_state["api_key"]:
                 st.error("Please enter your Gemini API Key in the sidebar first.")
             else:
@@ -174,16 +221,37 @@ if st.session_state.current_page == "home":
                                 # Construct context from current tasks
                                 task_context = "Current Tasks:\n"
                                 for t in st.session_state.app_state["tasks"]:
-                                    task_context += f"- Objective: {t['objective']} (Progress: {t['progress']}%)\n"
+                                    task_context += f"- ID: {t['id']} | Objective: {t['objective']} | Progress: {t['progress']}%\n"
 
-                                full_prompt = f"You are a gamified task system AI advisor. Answer the user's query briefly based on their current tasks.\n\n{task_context}\n\nUser Query: {prompt}"
+                                system_instruction = """
+You are a gamified task system AI advisor. Answer the user's query briefly based on their current tasks.
+
+IF the user asks to SORT or PRIORITIZE tasks, you MUST provide a friendly explanation of your reasoning, AND append a strict JSON block at the very end of your response exactly like this:
+```json
+{
+  "action": "reorder",
+  "new_order": ["<task_id_1>", "<task_id_2>"]
+}
+```
+Include ALL task IDs in the new order, from most important to least important. Do not output this JSON block unless prioritizing.
+"""
+                                full_prompt = f"{system_instruction}\n\n{task_context}\n\nUser Query: {prompt}"
 
                                 response = model.generate_content(full_prompt)
                                 response_text = response.text
 
-                                st.markdown(response_text)
+                                # Do not display the raw JSON to the user here; we just save it, and the loop above will parse it
+                                match = re.search(r'```json\s*\n(\{\s*"action"\s*:\s*"reorder"[\s\S]*?\})\s*\n```', response_text)
+                                if match:
+                                    clean_text = response_text[:match.start()] + response_text[match.end():]
+                                    st.markdown(clean_text)
+                                    st.info("🔄 Refresh or scroll up to click the button to apply the sorting!")
+                                else:
+                                    st.markdown(response_text)
+
                                 st.session_state.app_state["chat_history"].append({"role": "assistant", "content": response_text})
                                 persist_state()
+                                st.rerun() # Refresh to instantly render the button
                             except Exception as e:
                                 st.error(f"Error connecting to AI: {e}")
 
