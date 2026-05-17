@@ -7,6 +7,8 @@ import re
 
 STATE_FILE = "gamified_state.json"
 
+from datetime import datetime
+
 def load_state():
     # Define default modern state
     default_state = {
@@ -29,7 +31,8 @@ def load_state():
                             "objective": data.get("task_objective", ""),
                             "progress": data.get("current_progress", 0),
                             "todo_list": data.get("todo_list", []),
-                            "last_eval": None
+                            "last_eval": None,
+                            "contribution_history": []
                         })
                     return migrated_state
 
@@ -65,7 +68,149 @@ if "current_task_id" not in st.session_state:
 def navigate_to(page, task_id=None):
     st.session_state.current_page = page
     st.session_state.current_task_id = task_id
+    # Clear chat history when switching contexts to avoid confusion
+    st.session_state.app_state["chat_history"] = []
+    persist_state()
     st.rerun()
+
+def render_ai_chatbox(context_type, context_data, custom_presets=None):
+    st.header("🤖 AI Advisor")
+    if context_type == "dashboard":
+        st.write("Ask for advice on managing your tasks.")
+    else:
+        st.write(f"Ask AI about: {context_data.get('objective', 'this task')}")
+
+    # Display chat history
+    chat_container = st.container(height=450)
+    with chat_container:
+        for idx, msg in enumerate(st.session_state.app_state["chat_history"]):
+            with st.chat_message(msg["role"]):
+                content = msg["content"]
+
+                # Look for hidden JSON reorder block
+                match = re.search(r'```json\s*\n(\{\s*"action"\s*:\s*"reorder"[\s\S]*?\})\s*\n```', content)
+                if match and context_type == "dashboard":
+                    try:
+                        reorder_data = json.loads(match.group(1))
+                        clean_text = content[:match.start()] + content[match.end():]
+                        st.markdown(clean_text)
+
+                        # Interactive Action Button
+                        if st.button("✨ 一键应用 AI 排序 (Apply Sorting)", key=f"apply_sort_{idx}"):
+                            new_order_ids = reorder_data.get("new_order", [])
+                            task_dict = {t["id"]: t for t in st.session_state.app_state["tasks"]}
+                            reordered_tasks = []
+                            # Add in the new order
+                            for tid in new_order_ids:
+                                if tid in task_dict:
+                                    reordered_tasks.append(task_dict.pop(tid))
+                            # Add any remaining tasks that the AI missed
+                            reordered_tasks.extend(task_dict.values())
+                            st.session_state.app_state["tasks"] = reordered_tasks
+                            persist_state()
+                            st.success("Tasks reordered!")
+                            st.rerun()
+
+                    except json.JSONDecodeError:
+                        st.markdown(content)
+                else:
+                    st.markdown(content)
+
+    # Preset action buttons
+    if "pending_prompt" not in st.session_state:
+        st.session_state.pending_prompt = None
+
+    if custom_presets:
+        cols = st.columns(len(custom_presets))
+        for i, preset in enumerate(custom_presets):
+            with cols[i]:
+                if st.button(preset["label"], use_container_width=True):
+                    st.session_state.pending_prompt = preset["prompt"]
+
+    # Handle chat input or preset click
+    prompt = st.chat_input("Ask a question...")
+    if st.session_state.pending_prompt:
+        prompt = st.session_state.pending_prompt
+        st.session_state.pending_prompt = None
+
+    if prompt:
+        if not st.session_state.app_state["api_key"]:
+            st.error("Please enter your Gemini API Key in the sidebar first.")
+        else:
+            st.session_state.app_state["chat_history"].append({"role": "user", "content": prompt})
+            with chat_container:
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+            with chat_container:
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        try:
+                            genai.configure(api_key=st.session_state.app_state["api_key"])
+                            model = genai.GenerativeModel('gemini-flash-latest')
+
+                            system_instruction = ""
+                            if context_type == "dashboard":
+                                task_context = "Current Tasks:\n"
+                                for t in context_data:
+                                    task_context += f"- ID: {t['id']} | Objective: {t['objective']} | Progress: {t['progress']}%\n"
+
+                                system_instruction = """
+You are a gamified task system AI advisor. Answer the user's query briefly based on their current tasks.
+
+IF the user asks to SORT or PRIORITIZE tasks, you MUST provide a friendly explanation of your reasoning, AND append a strict JSON block at the very end of your response exactly like this:
+```json
+{
+  "action": "reorder",
+  "new_order": ["<task_id_1>", "<task_id_2>"]
+}
+```
+Include ALL task IDs in the new order, from most important to least important. Do not output this JSON block unless prioritizing.
+"""
+                            elif context_type == "task_detail":
+                                task_context = f"Current Task: {context_data['objective']}\nCurrent Progress: {context_data['progress']}%"
+                                system_instruction = "You are a helpful AI advisor focused on helping the user accomplish the specific task provided. Answer their questions directly, creatively, and briefly."
+
+                            full_prompt = f"{system_instruction}\n\n{task_context}\n\nUser Query: {prompt}"
+
+                            response = model.generate_content(full_prompt)
+                            response_text = response.text
+
+                            # Clean JSON if it exists (only relevant for dashboard sorting)
+                            match = re.search(r'```json\s*\n(\{\s*"action"\s*:\s*"reorder"[\s\S]*?\})\s*\n```', response_text)
+                            if match and context_type == "dashboard":
+                                clean_text = response_text[:match.start()] + response_text[match.end():]
+                                st.markdown(clean_text)
+                                st.info("🔄 Refresh or scroll up to click the button to apply the sorting!")
+                            else:
+                                st.markdown(response_text)
+
+                            st.session_state.app_state["chat_history"].append({"role": "assistant", "content": response_text})
+                            persist_state()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error connecting to AI: {e}")
+
+def render_calendar(tasks):
+    with st.expander("📅 Daily Contribution Calendar", expanded=False):
+        st.write("Your total daily progress contributions across all goals.")
+        # Aggregate history
+        history = {}
+        for t in tasks:
+            for record in t.get("contribution_history", []):
+                date = record["date"]
+                if date not in history:
+                    history[date] = []
+                history[date].append(f"[{t['objective']}]: +{record['contribution']}% - {record['action']}")
+
+        if not history:
+            st.info("No contribution history yet. Submit a daily action to see it here!")
+        else:
+            # Sort dates descending
+            for date in sorted(history.keys(), reverse=True):
+                st.markdown(f"**{date}**")
+                for item in history[date]:
+                    st.markdown(f"- {item}")
 
 # --------------------------------------------------------------------------------
 # HOME PAGE
@@ -109,7 +254,9 @@ if st.session_state.current_page == "home":
                     "objective": new_task_objective.strip(),
                     "progress": 0,
                     "todo_list": [],
-                    "last_eval": None
+                    "last_eval": None,
+                    "contribution_history": [],
+                    "recommended_questions": []
                 })
                 persist_state()
                 st.rerun()
@@ -143,117 +290,15 @@ if st.session_state.current_page == "home":
                                 persist_state()
                                 st.rerun()
 
-    # AI Chatbox for Priority Advice
+    with col_main:
+        render_calendar(st.session_state.app_state["tasks"])
+
     with col_chat:
-        st.header("🤖 AI Advisor")
-        st.write("Ask for advice on managing your tasks.")
-
-        # Display chat history
-        chat_container = st.container(height=450)
-        with chat_container:
-            for idx, msg in enumerate(st.session_state.app_state["chat_history"]):
-                with st.chat_message(msg["role"]):
-                    content = msg["content"]
-
-                    # Look for hidden JSON reorder block
-                    match = re.search(r'```json\s*\n(\{\s*"action"\s*:\s*"reorder"[\s\S]*?\})\s*\n```', content)
-                    if match:
-                        try:
-                            reorder_data = json.loads(match.group(1))
-                            clean_text = content[:match.start()] + content[match.end():]
-                            st.markdown(clean_text)
-
-                            # Interactive Action Button
-                            if st.button("✨ 一键应用 AI 排序 (Apply Sorting)", key=f"apply_sort_{idx}"):
-                                new_order_ids = reorder_data.get("new_order", [])
-                                task_dict = {t["id"]: t for t in st.session_state.app_state["tasks"]}
-                                reordered_tasks = []
-                                # Add in the new order
-                                for tid in new_order_ids:
-                                    if tid in task_dict:
-                                        reordered_tasks.append(task_dict.pop(tid))
-                                # Add any remaining tasks that the AI missed
-                                reordered_tasks.extend(task_dict.values())
-                                st.session_state.app_state["tasks"] = reordered_tasks
-                                persist_state()
-                                st.success("Tasks reordered!")
-                                st.rerun()
-
-                        except json.JSONDecodeError:
-                            st.markdown(content)
-                    else:
-                        st.markdown(content)
-
-        # Preset action buttons
-        if "pending_prompt" not in st.session_state:
-            st.session_state.pending_prompt = None
-
-        action_cols = st.columns(2)
-        with action_cols[0]:
-            if st.button("帮我排序任务优先级", use_container_width=True):
-                st.session_state.pending_prompt = "帮我排序当前任务的优先级。请根据重要性和进度合理安排。"
-        with action_cols[1]:
-            if st.button("对我目前的目标提供建议", use_container_width=True):
-                st.session_state.pending_prompt = "请查看我目前的所有目标和进度，并给我一些具体的建议。"
-
-        # Handle chat input or preset click
-        prompt = st.chat_input("Ask a question...")
-        if st.session_state.pending_prompt:
-            prompt = st.session_state.pending_prompt
-            st.session_state.pending_prompt = None
-
-        if prompt:
-            if not st.session_state.app_state["api_key"]:
-                st.error("Please enter your Gemini API Key in the sidebar first.")
-            else:
-                st.session_state.app_state["chat_history"].append({"role": "user", "content": prompt})
-                with chat_container:
-                    with st.chat_message("user"):
-                        st.markdown(prompt)
-
-                with chat_container:
-                    with st.chat_message("assistant"):
-                        with st.spinner("Thinking..."):
-                            try:
-                                genai.configure(api_key=st.session_state.app_state["api_key"])
-                                model = genai.GenerativeModel('gemini-flash-latest')
-
-                                # Construct context from current tasks
-                                task_context = "Current Tasks:\n"
-                                for t in st.session_state.app_state["tasks"]:
-                                    task_context += f"- ID: {t['id']} | Objective: {t['objective']} | Progress: {t['progress']}%\n"
-
-                                system_instruction = """
-You are a gamified task system AI advisor. Answer the user's query briefly based on their current tasks.
-
-IF the user asks to SORT or PRIORITIZE tasks, you MUST provide a friendly explanation of your reasoning, AND append a strict JSON block at the very end of your response exactly like this:
-```json
-{
-  "action": "reorder",
-  "new_order": ["<task_id_1>", "<task_id_2>"]
-}
-```
-Include ALL task IDs in the new order, from most important to least important. Do not output this JSON block unless prioritizing.
-"""
-                                full_prompt = f"{system_instruction}\n\n{task_context}\n\nUser Query: {prompt}"
-
-                                response = model.generate_content(full_prompt)
-                                response_text = response.text
-
-                                # Do not display the raw JSON to the user here; we just save it, and the loop above will parse it
-                                match = re.search(r'```json\s*\n(\{\s*"action"\s*:\s*"reorder"[\s\S]*?\})\s*\n```', response_text)
-                                if match:
-                                    clean_text = response_text[:match.start()] + response_text[match.end():]
-                                    st.markdown(clean_text)
-                                    st.info("🔄 Refresh or scroll up to click the button to apply the sorting!")
-                                else:
-                                    st.markdown(response_text)
-
-                                st.session_state.app_state["chat_history"].append({"role": "assistant", "content": response_text})
-                                persist_state()
-                                st.rerun() # Refresh to instantly render the button
-                            except Exception as e:
-                                st.error(f"Error connecting to AI: {e}")
+        presets = [
+            {"label": "帮我排序任务优先级", "prompt": "帮我排序当前任务的优先级。请根据重要性和进度合理安排。"},
+            {"label": "对我目前的目标提供建议", "prompt": "请查看我目前的所有目标和进度，并给我一些具体的建议。"}
+        ]
+        render_ai_chatbox("dashboard", st.session_state.app_state["tasks"], presets)
 
 # --------------------------------------------------------------------------------
 # TASK DETAIL PAGE
@@ -271,7 +316,10 @@ elif st.session_state.current_page == "task_detail":
         st.title(f"Quest: {task['objective']}")
         st.progress(task["progress"] / 100.0, text=f"Total Progress: {task['progress']}%")
 
-        col_report, col_todo = st.columns([1.5, 1])
+        render_calendar(st.session_state.app_state["tasks"])
+        st.markdown("---")
+
+        col_report, col_todo, col_chat = st.columns([1.2, 1, 1.2])
 
         with col_report:
             st.header("📝 Submit Daily Action")
@@ -327,6 +375,16 @@ elif st.session_state.current_page == "task_detail":
                                     "next_step": result.get('next_step', '')
                                 }
 
+                                if "contribution_history" not in task:
+                                    task["contribution_history"] = []
+
+                                today = datetime.now().strftime("%Y-%m-%d")
+                                task["contribution_history"].append({
+                                    "date": today,
+                                    "contribution": contribution,
+                                    "action": daily_action
+                                })
+
                                 next_step = result.get('next_step', '')
                                 if next_step:
                                     task['todo_list'].append({"id": uuid.uuid4().hex, "text": f"[AI Suggestion] {next_step}", "done": False})
@@ -380,3 +438,33 @@ elif st.session_state.current_page == "task_detail":
                         task["todo_list"].append({"id": uuid.uuid4().hex, "text": new_todo.strip(), "done": False})
                         persist_state()
                         st.rerun()
+
+        with col_chat:
+            # Generate dynamic presets for this specific task if they don't exist
+            if "recommended_questions" not in task or not task["recommended_questions"]:
+                task["recommended_questions"] = []
+                if st.session_state.app_state["api_key"]:
+                    try:
+                        genai.configure(api_key=st.session_state.app_state["api_key"])
+                        model = genai.GenerativeModel('gemini-flash-latest', generation_config={"response_mime_type": "application/json"})
+                        q_prompt = f"""
+Based on the task objective: "{task['objective']}", generate 2 highly relevant and interesting questions the user might want to ask an AI to get more context, history, or actionable advice.
+Output exactly this JSON format:
+{{
+  "questions": ["Question 1", "Question 2"]
+}}
+"""
+                        resp = model.generate_content(q_prompt)
+                        q_data = json.loads(resp.text)
+                        task["recommended_questions"] = q_data.get("questions", [])
+                        persist_state()
+                    except Exception:
+                        pass # Silently fail and fallback to default or empty if generation fails
+
+            presets = []
+            for q in task.get("recommended_questions", []):
+                # Truncate label if too long for a button
+                label = q if len(q) < 20 else q[:18] + "..."
+                presets.append({"label": label, "prompt": q})
+
+            render_ai_chatbox("task_detail", task, presets)
