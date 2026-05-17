@@ -77,34 +77,28 @@ with st.sidebar:
 
 st.header("📝 Daily Report")
 
-def update_objective():
-    st.session_state.task_objective = st.session_state._task_objective
-    save_state({"todo_list": st.session_state.todo_list, "task_objective": st.session_state.task_objective, "current_progress": st.session_state.current_progress})
-
-def update_progress():
-    st.session_state.current_progress = st.session_state._current_progress
-    save_state({"todo_list": st.session_state.todo_list, "task_objective": st.session_state.task_objective, "current_progress": st.session_state.current_progress})
-
-task_objective = st.text_area(
+new_objective = st.text_area(
     "【任务名称与目标】(Task Objective)",
     value=st.session_state.task_objective,
-    key="_task_objective",
-    on_change=update_objective,
     placeholder="e.g., Complete the frontend design for the new app."
 )
+if new_objective != st.session_state.task_objective:
+    st.session_state.task_objective = new_objective
+    save_state({"todo_list": st.session_state.todo_list, "task_objective": st.session_state.task_objective, "current_progress": st.session_state.current_progress})
 
-# Use _current_progress as the source of truth for the widget
-if "_current_progress" not in st.session_state:
-    st.session_state._current_progress = st.session_state.current_progress
 
-current_progress = st.number_input(
+new_progress_val = st.number_input(
     "【当前总进度】(Current Progress, %)",
     min_value=0,
     max_value=100,
-    value=st.session_state._current_progress,
-    key="_current_progress",
-    on_change=update_progress
+    value=st.session_state.current_progress
 )
+if new_progress_val != st.session_state.current_progress:
+    st.session_state.current_progress = new_progress_val
+    save_state({"todo_list": st.session_state.todo_list, "task_objective": st.session_state.task_objective, "current_progress": st.session_state.current_progress})
+
+current_progress = st.session_state.current_progress
+task_objective = st.session_state.task_objective
 
 daily_action = st.text_area("【今日行动记录】(Daily Action)", placeholder="e.g., Designed the login and registration pages.")
 
@@ -148,33 +142,19 @@ if st.button("Evaluate Action", type="primary"):
                 try:
                     result = json.loads(response.text)
 
-                    st.success("Evaluation Complete!")
+                    st.session_state.last_eval = result
 
                     new_progress = result.get('new_total_progress', current_progress)
-
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric(label="Contribution", value=f"+{result.get('contribution_percent', 0)}%")
-                    with col2:
-                        st.metric(label="EXP Earned", value=f"+{result.get('exp_earned', 0)}")
-                    with col3:
-                        st.metric(label="New Total Progress", value=f"{new_progress}%")
-
-                    # Update session state and widget state with the new progress
                     if new_progress != current_progress:
                         st.session_state.current_progress = new_progress
-                        st.session_state._current_progress = new_progress
                         save_state({"todo_list": st.session_state.todo_list, "task_objective": st.session_state.task_objective, "current_progress": st.session_state.current_progress})
 
-                    st.info(f"**Feedback:** {result.get('feedback', '')}")
-
                     next_step = result.get('next_step', '')
-                    st.warning(f"**Next Step:** {next_step}")
-
                     if next_step:
                         st.session_state.todo_list.append({"id": uuid.uuid4().hex, "text": f"[AI Suggestion] {next_step}", "done": False})
                         save_state({"todo_list": st.session_state.todo_list, "task_objective": st.session_state.task_objective, "current_progress": st.session_state.current_progress})
-                        st.success("✨ Added next step to your To-Do list!")
+
+                    st.rerun()
 
                 except json.JSONDecodeError:
                     st.error("Failed to parse the response from the AI engine. Please try again.")
@@ -183,3 +163,18 @@ if st.button("Evaluate Action", type="primary"):
 
             except Exception as e:
                 st.error(f"An error occurred: {e}")
+
+if "last_eval" in st.session_state:
+    result = st.session_state.last_eval
+    st.success("Evaluation Complete!")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(label="Contribution", value=f"+{result.get('contribution_percent', 0)}%")
+    with col2:
+        st.metric(label="EXP Earned", value=f"+{result.get('exp_earned', 0)}")
+    with col3:
+        st.metric(label="New Total Progress", value=f"{st.session_state.current_progress}%")
+
+    st.info(f"**Feedback:** {result.get('feedback', '')}")
+    st.warning(f"**Next Step:** {result.get('next_step', '')}")
