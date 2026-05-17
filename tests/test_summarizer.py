@@ -1,46 +1,75 @@
 import pytest
-from unittest.mock import patch, mock_open, MagicMock
-from summarizer import transcribe_audio, summarize_text
+from unittest.mock import patch, MagicMock
+from summarizer import summarize_audio_with_gemini
 
-@patch('summarizer.OpenAI')
-@patch('builtins.open', new_callable=mock_open, read_data=b"dummy audio")
-def test_transcribe_audio_success(mock_file, mock_openai_class):
-    mock_client = mock_openai_class.return_value
-    mock_transcriptions = mock_client.audio.transcriptions
+@patch('summarizer.genai')
+@patch('summarizer.time.sleep')
+def test_summarize_audio_with_gemini_success(mock_sleep, mock_genai):
+    # Mock upload
+    mock_file = MagicMock()
+    mock_file.state.name = "ACTIVE"
+    mock_file.name = "test_file_id"
+    mock_genai.upload_file.return_value = mock_file
+
+    # Mock generate content
+    mock_model = MagicMock()
     mock_response = MagicMock()
-    mock_response.text = "This is a transcript."
-    mock_transcriptions.create.return_value = mock_response
+    mock_response.text = "This is a summary from Gemini."
+    mock_model.generate_content.return_value = mock_response
+    mock_genai.GenerativeModel.return_value = mock_model
 
-    result = transcribe_audio("test.mp3", "fake_key")
+    result = summarize_audio_with_gemini("test.mp3", "fake_key")
 
-    mock_transcriptions.create.assert_called_once()
-    assert result == "This is a transcript."
+    mock_genai.configure.assert_called_once_with(api_key="fake_key")
+    mock_genai.upload_file.assert_called_once_with(path="test.mp3")
+    mock_genai.GenerativeModel.assert_called_once_with("gemini-1.5-flash")
+    mock_model.generate_content.assert_called_once()
+    mock_genai.delete_file.assert_called_once_with("test_file_id")
 
-@patch('summarizer.OpenAI')
-def test_transcribe_audio_failure(mock_openai_class):
-    mock_openai_class.side_effect = Exception("API error")
+    assert result == "This is a summary from Gemini."
 
-    result = transcribe_audio("test.mp3", "fake_key")
+@patch('summarizer.genai')
+@patch('summarizer.time.sleep')
+def test_summarize_audio_with_gemini_processing_wait(mock_sleep, mock_genai):
+    # Mock upload with PROCESSING state then ACTIVE
+    mock_file_proc = MagicMock()
+    mock_file_proc.state.name = "PROCESSING"
+    mock_file_proc.name = "test_file_id"
+
+    mock_file_active = MagicMock()
+    mock_file_active.state.name = "ACTIVE"
+    mock_file_active.name = "test_file_id"
+
+    mock_genai.upload_file.return_value = mock_file_proc
+    mock_genai.get_file.return_value = mock_file_active
+
+    # Mock generate content
+    mock_model = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = "Summary"
+    mock_model.generate_content.return_value = mock_response
+    mock_genai.GenerativeModel.return_value = mock_model
+
+    result = summarize_audio_with_gemini("test.mp3", "fake_key")
+
+    mock_genai.get_file.assert_called_once_with("test_file_id")
+    assert result == "Summary"
+
+@patch('summarizer.genai')
+@patch('summarizer.time.sleep')
+def test_summarize_audio_with_gemini_failure_state(mock_sleep, mock_genai):
+    mock_file = MagicMock()
+    mock_file.state.name = "FAILED"
+    mock_genai.upload_file.return_value = mock_file
+
+    result = summarize_audio_with_gemini("test.mp3", "fake_key")
 
     assert result is None
 
-@patch('summarizer.OpenAI')
-def test_summarize_text_success(mock_openai_class):
-    mock_client = mock_openai_class.return_value
-    mock_completions = mock_client.chat.completions
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock(message=MagicMock(content="This is a summary."))]
-    mock_completions.create.return_value = mock_response
+@patch('summarizer.genai')
+def test_summarize_audio_with_gemini_exception(mock_genai):
+    mock_genai.configure.side_effect = Exception("API error")
 
-    result = summarize_text("transcript text", "fake_key")
-
-    mock_completions.create.assert_called_once()
-    assert result == "This is a summary."
-
-@patch('summarizer.OpenAI')
-def test_summarize_text_failure(mock_openai_class):
-    mock_openai_class.side_effect = Exception("API error")
-
-    result = summarize_text("transcript text", "fake_key")
+    result = summarize_audio_with_gemini("test.mp3", "fake_key")
 
     assert result is None

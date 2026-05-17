@@ -1,13 +1,14 @@
 # Video Summarizer to Google Docs
 
-This application downloads a YouTube video, extracts its audio, transcribes the audio using OpenAI's Whisper model, summarizes the transcript using OpenAI's GPT-4o model, and directly saves the generated summary as a new document in your Google Docs.
+This application downloads a YouTube video's audio, transcribes and summarizes the audio using Google's Gemini 1.5 Flash model, and directly saves the generated summary as a new document in your Google Docs.
 
 ## Prerequisites
 
 To run this application, you need:
 
 1.  **Python 3.8+**
-2.  **OpenAI API Key**: Obtain an API key from [OpenAI Platform](https://platform.openai.com/).
+2.  **FFmpeg**: Ensure `ffmpeg` is installed on your system.
+3.  **Google Gemini API Key**: Obtain an API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
 3.  **Google Cloud Platform Account**: You need to set up a project and obtain OAuth 2.0 Client IDs.
     *   Go to the [Google Cloud Console](https://console.cloud.google.com/).
     *   Enable the **Google Docs API**.
@@ -36,7 +37,7 @@ To run this application, you need:
     streamlit run app.py
     ```
 3.  Open the provided local URL in your web browser.
-4.  In the sidebar, enter your **OpenAI API Key** and the path to your `credentials.json` (defaults to `credentials.json`).
+4.  In the sidebar, enter your **Google Gemini API Key** and the path to your `credentials.json` (defaults to `credentials.json`).
 5.  Enter the **YouTube Video URL** and the desired **Document Title**.
 6.  Click **Generate Summary**. The application will process the video and provide a link to your newly created Google Document.
 
