@@ -56,6 +56,18 @@ TRANSLATIONS = {
         "eval_btn": "Evaluate Contribution",
         "action_warning": "Please enter your daily action.",
         "ai_evaluating": "AI is evaluating your contribution...",
+        "folder_title": "📂 Folders",
+        "folder_all": "All",
+        "folder_ongoing": "Ongoing",
+        "folder_unfinished": "Unfinished",
+        "folder_on_hold": "On Hold",
+        "folder_deleted": "Deleted",
+        "status_label": "Status",
+        "roadmap_title": "🗺️ Quest Roadmap",
+        "generate_roadmap": "Generate AI Roadmap",
+        "generating_roadmap": "AI is plotting your roadmap...",
+        "prev_step": "⬅️ Prev Step",
+        "next_step": "Next Step ➡️",
         "parse_error": "Failed to parse AI response.",
         "eval_complete": "Evaluation Complete!",
         "contribution": "Contribution",
@@ -114,6 +126,18 @@ TRANSLATIONS = {
         "eval_btn": "评估贡献度",
         "action_warning": "请输入您的日常行动。",
         "ai_evaluating": "AI 正在评估您的贡献...",
+        "folder_title": "📂 文件夹",
+        "folder_all": "全部",
+        "folder_ongoing": "进行中",
+        "folder_unfinished": "未完成",
+        "folder_on_hold": "已搁置",
+        "folder_deleted": "已删除",
+        "status_label": "状态",
+        "roadmap_title": "🗺️ 任务路线图",
+        "generate_roadmap": "生成 AI 路线图",
+        "generating_roadmap": "AI 正在规划路线图...",
+        "prev_step": "⬅️ 上一步",
+        "next_step": "下一步 ➡️",
         "parse_error": "无法解析AI响应。",
         "eval_complete": "评估完成！",
         "contribution": "贡献度",
@@ -172,6 +196,18 @@ TRANSLATIONS = {
         "eval_btn": "ประเมินผลงาน",
         "action_warning": "โปรดป้อนการกระทำรายวันของคุณ",
         "ai_evaluating": "AI กำลังประเมินผลงานของคุณ...",
+        "folder_title": "📂 โฟลเดอร์",
+        "folder_all": "ทั้งหมด",
+        "folder_ongoing": "กำลังดำเนินการ",
+        "folder_unfinished": "ยังไม่เสร็จ",
+        "folder_on_hold": "ระงับไว้",
+        "folder_deleted": "ลบแล้ว",
+        "status_label": "สถานะ",
+        "roadmap_title": "🗺️ แผนงานภารกิจ",
+        "generate_roadmap": "สร้างแผนงาน AI",
+        "generating_roadmap": "AI กำลังวางแผนงานของคุณ...",
+        "prev_step": "⬅️ ขั้นตอนก่อนหน้า",
+        "next_step": "ขั้นตอนถัดไป ➡️",
         "parse_error": "ไม่สามารถแยกวิเคราะห์การตอบสนองของ AI",
         "eval_complete": "การประเมินเสร็จสมบูรณ์!",
         "contribution": "ผลงาน",
@@ -225,12 +261,16 @@ def load_state():
                     if key not in data:
                         data[key] = default_state[key]
 
-                # Ensure existing tasks have contribution_history and recommended_questions
+                # Ensure existing tasks have contribution_history, recommended_questions, status, and roadmap
                 for task in data.get("tasks", []):
                     if "contribution_history" not in task:
                         task["contribution_history"] = []
                     if "recommended_questions" not in task:
                         task["recommended_questions"] = []
+                    if "status" not in task:
+                        task["status"] = "ongoing"
+                    if "roadmap" not in task:
+                        task["roadmap"] = {"steps": [], "current_step_index": 0}
                 return data
         except Exception:
             pass
@@ -530,8 +570,25 @@ if st.session_state.current_page == "home":
     render_level_header()
     st.write(t("app_desc"))
 
-    # Sidebar: API Key Configuration & Language
+    # Sidebar: API Key Configuration & Language & Folders
     with st.sidebar:
+        st.header(t("folder_title"))
+        folder_options = [
+            ("all", t("folder_all")),
+            ("ongoing", t("folder_ongoing")),
+            ("unfinished", t("folder_unfinished")),
+            ("on_hold", t("folder_on_hold")),
+            ("deleted", t("folder_deleted"))
+        ]
+
+        selected_folder = st.radio(
+            "Select Folder",
+            options=[x[0] for x in folder_options],
+            format_func=lambda x: next(item[1] for item in folder_options if item[0] == x),
+            label_visibility="collapsed"
+        )
+
+        st.markdown("---")
         st.header(t("config_header"))
 
         langs = ["English", "中文", "ไทย"]
@@ -570,44 +627,75 @@ if st.session_state.current_page == "home":
                 submit_task = st.form_submit_button(t("add_goal_btn"))
 
             if submit_task and new_task_objective.strip():
-                st.session_state.app_state["tasks"].append({
+                st.session_state.app_state["tasks"].insert(0, {
                     "id": uuid.uuid4().hex,
                     "objective": new_task_objective.strip(),
                     "progress": 0,
                     "todo_list": [],
                     "last_eval": None,
                     "contribution_history": [],
-                    "recommended_questions": []
+                    "recommended_questions": [],
+                    "status": "ongoing",
+                    "roadmap": {"steps": [], "current_step_index": 0}
                 })
                 persist_state()
                 st.rerun()
 
         st.markdown("---")
 
-        if not st.session_state.app_state["tasks"]:
+        tasks = st.session_state.app_state["tasks"]
+
+        # Filter tasks by folder
+        if selected_folder == "all":
+            filtered_tasks = [t_obj for t_obj in tasks if t_obj.get("status") != "deleted"]
+        else:
+            filtered_tasks = [t_obj for t_obj in tasks if t_obj.get("status") == selected_folder]
+
+        if not filtered_tasks:
             st.info(t("no_goals"))
         else:
             # Display tasks with manual sorting (Move Up/Down)
-            tasks = st.session_state.app_state["tasks"]
-            for i, task in enumerate(tasks):
+            for i, task in enumerate(filtered_tasks):
+                # Find original index for sorting logic
+                orig_i = tasks.index(task)
+
                 with st.container(border=True):
-                    col_info, col_actions = st.columns([3, 1])
+                    col_info, col_actions = st.columns([2.5, 1.5])
                     with col_info:
                         st.subheader(task["objective"])
                         st.progress(task["progress"] / 100.0, text=t("completion", task['progress']))
                     with col_actions:
-                        if st.button(t("enter_quest"), key=f"enter_{task['id']}", use_container_width=True):
-                            navigate_to("task_detail", task["id"])
+                        # Status dropdown
+                        status_opts = ["ongoing", "unfinished", "on_hold", "deleted"]
+                        current_status = task.get("status", "ongoing")
+                        curr_idx = status_opts.index(current_status) if current_status in status_opts else 0
 
-                        sort_cols = st.columns(2)
-                        with sort_cols[0]:
-                            if st.button("⬆️", key=f"up_{task['id']}", disabled=(i == 0), help=t("move_up")):
-                                tasks[i], tasks[i-1] = tasks[i-1], tasks[i]
+                        new_status = st.selectbox(
+                            t("status_label"),
+                            options=status_opts,
+                            index=curr_idx,
+                            format_func=lambda x: t(f"folder_{x}"),
+                            key=f"status_{task['id']}",
+                            label_visibility="collapsed"
+                        )
+                        if new_status != current_status:
+                            tasks[orig_i]["status"] = new_status
+                            persist_state()
+                            st.rerun()
+
+                        action_cols = st.columns(3)
+                        with action_cols[0]:
+                            if st.button(t("enter_quest"), key=f"enter_{task['id']}", use_container_width=True):
+                                navigate_to("task_detail", task["id"])
+
+                        with action_cols[1]:
+                            if st.button("⬆️", key=f"up_{task['id']}", disabled=(orig_i == 0), help=t("move_up")):
+                                tasks[orig_i], tasks[orig_i-1] = tasks[orig_i-1], tasks[orig_i]
                                 persist_state()
                                 st.rerun()
-                        with sort_cols[1]:
-                            if st.button("⬇️", key=f"down_{task['id']}", disabled=(i == len(tasks) - 1), help=t("move_down")):
-                                tasks[i], tasks[i+1] = tasks[i+1], tasks[i]
+                        with action_cols[2]:
+                            if st.button("⬇️", key=f"down_{task['id']}", disabled=(orig_i == len(tasks) - 1), help=t("move_down")):
+                                tasks[orig_i], tasks[orig_i+1] = tasks[orig_i+1], tasks[orig_i]
                                 persist_state()
                                 st.rerun()
 
@@ -652,6 +740,94 @@ elif st.session_state.current_page == "task_detail":
         st.title(t("quest_title", task['objective']))
         st.progress(task["progress"] / 100.0, text=t("total_progress", task['progress']))
 
+        # --------------------------------------------------------------------------------
+        # ROADMAP FEATURE
+        # --------------------------------------------------------------------------------
+        st.markdown("---")
+        st.subheader(t("roadmap_title"))
+
+        roadmap = task.get("roadmap", {"steps": [], "current_step_index": 0})
+
+        if not roadmap.get("steps"):
+            if st.button(t("generate_roadmap"), type="secondary"):
+                if not st.session_state.app_state["api_key"]:
+                    st.error(t("api_key_error"))
+                else:
+                    with st.spinner(t("generating_roadmap")):
+                        try:
+                            genai.configure(api_key=st.session_state.app_state["api_key"])
+                            model = genai.GenerativeModel('gemini-flash-latest', generation_config={"response_mime_type": "application/json"})
+                            lang = st.session_state.app_state.get("language", "English")
+
+                            prompt = f"""
+                            You are a quest designer. Break down the following objective into a 5-7 step roadmap or skill-tree.
+                            Objective: "{task['objective']}"
+                            Ensure the response is strictly JSON. The language MUST be {lang}.
+                            Format:
+                            {{
+                                "steps": ["Step 1 Description", "Step 2 Description", ...]
+                            }}
+                            """
+                            response = model.generate_content(prompt)
+                            data = json.loads(response.text)
+                            if "steps" in data:
+                                task["roadmap"] = {"steps": data["steps"], "current_step_index": 0}
+                                persist_state()
+                                st.rerun()
+                        except Exception as e:
+                            st.error(t("ai_error", e))
+        else:
+            steps = roadmap["steps"]
+            current_idx = roadmap["current_step_index"]
+
+            # Custom HTML/CSS for a vertical visual timeline
+            html_content = "<div style='position:relative; margin-left: 20px; padding-bottom: 20px;'>"
+            html_content += "<div style='position:absolute; left: 11px; top: 10px; bottom: 10px; width: 4px; background-color: #e5e7eb; z-radius: 2px;'></div>"
+
+            for i, step in enumerate(steps):
+                is_completed = i < current_idx
+                is_active = i == current_idx
+
+                if is_completed:
+                    color = "#34c759"
+                    icon = "✓"
+                    text_style = "color: #4b5563; text-decoration: line-through;"
+                elif is_active:
+                    color = "#007aff"
+                    icon = "●"
+                    text_style = "color: #111827; font-weight: bold;"
+                else:
+                    color = "#9ca3af"
+                    icon = "○"
+                    text_style = "color: #9ca3af;"
+
+                html_content += f"""
+                <div style='display: flex; align-items: flex-start; margin-bottom: 20px; position: relative;'>
+                    <div style='z-index: 10; margin-top: 2px; width: 26px; height: 26px; border-radius: 50%; background-color: {color}; color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; box-shadow: 0 0 0 4px #ffffff;'>
+                        {icon}
+                    </div>
+                    <div style='margin-left: 15px; padding-top: 4px; {text_style} font-size: 16px;'>
+                        {step}
+                    </div>
+                </div>
+                """
+            html_content += "</div>"
+
+            st.markdown(html_content, unsafe_allow_html=True)
+
+            ctrl_col1, ctrl_col2, _ = st.columns([1, 1, 3])
+            with ctrl_col1:
+                if st.button(t("prev_step"), disabled=current_idx == 0):
+                    task["roadmap"]["current_step_index"] -= 1
+                    persist_state()
+                    st.rerun()
+            with ctrl_col2:
+                if st.button(t("next_step"), disabled=current_idx >= len(steps)):
+                    task["roadmap"]["current_step_index"] += 1
+                    persist_state()
+                    st.rerun()
+
+        st.markdown("---")
         render_calendar(st.session_state.app_state["tasks"])
         st.markdown("---")
 
