@@ -1,6 +1,6 @@
 # Video Summarizer to Google Docs
 
-This application downloads a YouTube video's audio, transcribes and summarizes the audio using Google's Gemini 1.5 Flash model, and directly saves the generated summary as a new document in your Google Docs.
+This application downloads a YouTube or Bilibili video's audio, transcribes and summarizes the audio using Google's Gemini 1.5 Flash model, and directly saves the generated summary as a new document in your Google Docs.
 
 ## Prerequisites
 
@@ -38,7 +38,7 @@ To run this application, you need:
     ```
 3.  Open the provided local URL in your web browser.
 4.  In the sidebar, enter your **Google Gemini API Key** and the path to your `credentials.json` (defaults to `credentials.json`).
-5.  Enter the **YouTube Video URL** and the desired **Document Title**.
+5.  Enter the **Video URL** (YouTube or Bilibili) and the desired **Document Title**.
 6.  Click **Generate Summary**. The application will process the video and provide a link to your newly created Google Document.
 
 *Note: The first time you run the application and connect to Google Docs, a browser window will open asking you to grant permissions to the app. Once granted, a `token.json` file will be created locally to store your access tokens.*

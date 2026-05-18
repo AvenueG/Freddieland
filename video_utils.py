@@ -1,9 +1,9 @@
 import os
 import yt_dlp
 
-def download_youtube_audio(url, output_path):
+def download_video_audio(url, output_path):
     """
-    Downloads a YouTube video's audio directly.
+    Downloads a video's audio directly (supports YouTube, Bilibili, etc.).
     """
     # yt-dlp doesn't automatically add the extension unless specified,
     # but we are providing output_path which should include it.

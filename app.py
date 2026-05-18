@@ -1,14 +1,14 @@
 import streamlit as st
 import os
 import uuid
-from video_utils import download_youtube_audio
+from video_utils import download_video_audio
 from summarizer import summarize_audio_with_gemini
 from google_docs import authenticate_google_docs, create_google_doc, insert_text_to_doc
 
 st.set_page_config(page_title="Video Summarizer to Google Docs", page_icon="📝")
 
 st.title("🎥 Video Summarizer to Google Docs")
-st.write("Convert any YouTube video into a comprehensive summary using Google Gemini and save it directly to your Google Docs.")
+st.write("Convert any YouTube or Bilibili video into a comprehensive summary using Google Gemini and save it directly to your Google Docs.")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -20,16 +20,16 @@ with st.sidebar:
     ### How to use:
     1. Enter your Google Gemini API key.
     2. Ensure your Google `credentials.json` is in the specified path.
-    3. Paste a YouTube URL.
+    3. Paste a YouTube or Bilibili URL.
     4. Click 'Generate Summary'.
     """)
 
-youtube_url = st.text_input("YouTube Video URL", placeholder="https://www.youtube.com/watch?v=...")
+video_url = st.text_input("Video URL (YouTube or Bilibili)", placeholder="https://www.youtube.com/watch?v=... or https://www.bilibili.com/video/...")
 doc_title = st.text_input("Document Title", value="Video Summary")
 
 if st.button("Generate Summary", type="primary"):
-    if not youtube_url:
-        st.error("Please enter a YouTube URL.")
+    if not video_url:
+        st.error("Please enter a Video URL.")
     elif not gemini_api_key:
         st.error("Please enter your Gemini API Key in the sidebar.")
     elif not os.path.exists(google_creds_path):
@@ -42,7 +42,7 @@ if st.button("Generate Summary", type="primary"):
             try:
                 # Step 1: Download Audio
                 st.write("📥 Downloading audio...")
-                downloaded_audio = download_youtube_audio(youtube_url, audio_path)
+                downloaded_audio = download_video_audio(video_url, audio_path)
                 if not downloaded_audio:
                     st.error("Failed to download audio.")
                     st.stop()
