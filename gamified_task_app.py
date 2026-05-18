@@ -195,7 +195,10 @@ def load_state():
         "api_key": "",
         "language": "English",
         "tasks": [],
-        "chat_history": []
+        "chat_history": [],
+        "total_exp": 0,
+        "level": 1,
+        "action_history": []
     }
 
     if os.path.exists(STATE_FILE):
@@ -221,6 +224,13 @@ def load_state():
                 for key in default_state:
                     if key not in data:
                         data[key] = default_state[key]
+
+                # Ensure existing tasks have contribution_history and recommended_questions
+                for task in data.get("tasks", []):
+                    if "contribution_history" not in task:
+                        task["contribution_history"] = []
+                    if "recommended_questions" not in task:
+                        task["recommended_questions"] = []
                 return data
         except Exception:
             pass
@@ -231,6 +241,89 @@ def save_state(state):
         json.dump(state, f)
 
 st.set_page_config(page_title="Gamified Task System Engine", page_icon="🎮", layout="wide")
+
+# Inject Custom iOS-style CSS
+st.markdown("""
+<style>
+    /* Soft background color for the entire app */
+    .stApp {
+        background-color: #f4f5f7;
+    }
+
+    /* Rounded containers with subtle shadows to look like iOS cards */
+    div[data-testid="stVerticalBlock"] > div > div[data-testid="stVerticalBlock"] {
+        background-color: #ffffff;
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        border: none;
+        margin-bottom: 12px;
+    }
+
+    /* Style the main column slightly differently if needed */
+    div[data-testid="stColumn"] {
+        padding: 10px;
+    }
+
+    /* Modern, sleek rounded inputs */
+    input[type="text"], textarea, input[type="password"] {
+        border-radius: 12px !important;
+        border: 1px solid #d1d5db !important;
+        padding: 10px 14px !important;
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.05) !important;
+        transition: all 0.2s ease-in-out !important;
+    }
+
+    input[type="text"]:focus, textarea:focus, input[type="password"]:focus {
+        border-color: #007aff !important;
+        box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.2) !important;
+    }
+
+    /* Primary Buttons - iOS Blue style */
+    button[kind="primary"] {
+        background-color: #007aff !important;
+        color: white !important;
+        border-radius: 12px !important;
+        padding: 10px 24px !important;
+        font-weight: 600 !important;
+        border: none !important;
+        box-shadow: 0 2px 4px rgba(0, 122, 255, 0.3) !important;
+        transition: all 0.2s ease !important;
+    }
+
+    button[kind="primary"]:hover {
+        background-color: #005bb5 !important;
+        box-shadow: 0 4px 8px rgba(0, 122, 255, 0.4) !important;
+        transform: translateY(-1px);
+    }
+
+    /* Secondary Buttons - Light gray */
+    button[kind="secondary"] {
+        background-color: #f1f3f5 !important;
+        color: #333 !important;
+        border-radius: 12px !important;
+        padding: 8px 16px !important;
+        font-weight: 500 !important;
+        border: 1px solid #e5e7eb !important;
+        transition: all 0.2s ease !important;
+    }
+
+    button[kind="secondary"]:hover {
+        background-color: #e2e6ea !important;
+        transform: translateY(-1px);
+    }
+
+    /* Progress Bars */
+    .stProgress > div > div > div > div {
+        background-color: #34c759;
+        border-radius: 10px;
+    }
+    .stProgress > div > div {
+        background-color: #e5e5ea;
+        border-radius: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Initialize session state from persistent state
 if "app_state" not in st.session_state:
@@ -253,6 +346,32 @@ def navigate_to(page, task_id=None):
     st.session_state.app_state["chat_history"] = []
     persist_state()
     st.rerun()
+
+def get_gamer_title(level):
+    if level < 5:
+        return "Novice"
+    elif level < 15:
+        return "Grinder"
+    elif level < 30:
+        return "Veteran"
+    elif level < 50:
+        return "Master"
+    else:
+        return "Legend"
+
+def render_level_header():
+    total_exp = st.session_state.app_state.get("total_exp", 0)
+    level = st.session_state.app_state.get("level", 1)
+    title = get_gamer_title(level)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Gamer Title", title)
+    with col2:
+        st.metric("Level", level)
+    with col3:
+        st.metric("Total EXP", total_exp)
+    st.markdown("---")
 
 def t(key, *args):
     lang = st.session_state.app_state.get("language", "English")
@@ -408,6 +527,7 @@ def render_calendar(tasks):
 # --------------------------------------------------------------------------------
 if st.session_state.current_page == "home":
     st.title(t("app_title"))
+    render_level_header()
     st.write(t("app_desc"))
 
     # Sidebar: API Key Configuration & Language
@@ -501,6 +621,20 @@ if st.session_state.current_page == "home":
         ]
         render_ai_chatbox("dashboard", st.session_state.app_state["tasks"], presets)
 
+    st.markdown("---")
+
+    with st.expander("📜 Global Action History", expanded=False):
+        history = st.session_state.app_state.get("action_history", [])
+        if not history:
+            st.write("No actions evaluated yet. Complete a task action to see your history here!")
+        else:
+            for item in reversed(history):
+                st.markdown(f"**{item['date']}** - *{item['objective']}*")
+                st.markdown(f"> **Action:** {item['action']}")
+                st.markdown(f"> **Feedback:** {item['feedback']}")
+                st.markdown(f"> 🏅 **+{item['exp_earned']} EXP**")
+                st.markdown("---")
+
 # --------------------------------------------------------------------------------
 # TASK DETAIL PAGE
 # --------------------------------------------------------------------------------
@@ -514,6 +648,7 @@ elif st.session_state.current_page == "task_detail":
             navigate_to("home")
     else:
         st.button(t("back_home"), on_click=lambda: navigate_to("home"))
+        render_level_header()
         st.title(t("quest_title", task['objective']))
         st.progress(task["progress"] / 100.0, text=t("total_progress", task['progress']))
 
@@ -567,12 +702,28 @@ Output exactly this JSON format. The 'feedback' and 'next_step' strings must be 
                                 # Accumulate progress safely up to 100
                                 new_progress = min(100.0, task['progress'] + contribution)
 
+                                # Calculate EXP
+                                exp_earned = int(contribution * 10)
+
+                                # Update Global Leveling
+                                st.session_state.app_state["total_exp"] += exp_earned
+                                st.session_state.app_state["level"] = (st.session_state.app_state["total_exp"] // 100) + 1
+
+                                # Append to Global Action History
+                                st.session_state.app_state["action_history"].append({
+                                    "objective": task['objective'],
+                                    "action": daily_action,
+                                    "feedback": result.get('feedback', ''),
+                                    "exp_earned": exp_earned,
+                                    "date": datetime.now().strftime("%Y-%m-%d %H:%M")
+                                })
+
                                 # Update task state
                                 task['progress'] = new_progress
                                 task['last_eval'] = {
                                     "feedback": result.get('feedback', ''),
                                     "contribution": contribution,
-                                    "exp_earned": int(contribution * 10),
+                                    "exp_earned": exp_earned,
                                     "next_step": result.get('next_step', '')
                                 }
 
